@@ -95,66 +95,69 @@ def main():
             else:
                 print("- No technologies detected")
         
-        # Fetch and analyze React repository issues
-        print("\nFetching React repository issues...")
-        react_issues = github.get_repository_issues("facebook", "react", state="open", per_page=20)
-        
-        if not react_issues:
-            print("Error: Could not fetch React repository issues")
+        # Load issues from github_issues.json
+        print("\nLoading issues from github_issues.json...")
+        try:
+            with open("github_issues.json", "r", encoding="utf-8") as f:
+                all_issues = json.load(f)
+        except FileNotFoundError:
+            print("Error: github_issues.json not found. Please run fetch_issues.py first.")
             return
-            
+        except json.JSONDecodeError:
+            print("Error: Invalid JSON format in github_issues.json")
+            return
+        
         # Analyze each issue and find matches using enhanced tech profile
         print("\nAnalyzing issues and finding matches...")
         issue_matches = []
         
-        for issue in react_issues:
-            try:
-                # Create a simplified issue object for analysis
-                simplified_issue = {
-                    'title': issue.get('title', ''),
-                    'body': issue.get('body', ''),
-                    'labels': issue.get('labels', []),
-                    'number': issue.get('number', 0)
-                }
-                
-                # Analyze issue requirements
-                issue_requirements = analyzer.analyze_issue(simplified_issue)
-                
-                if not issue_requirements:
-                    continue
-                
-                # Compare skills using enhanced tech profile
-                skill_match = analyzer.compare_skills(tech_profile, issue_requirements)
-                
-                if not skill_match:
-                    continue
-                
-                # Calculate score out of 10
-                match_score = calculate_score_out_of_10(skill_match.get("match_percentage", 0))
-                
-                # Construct issue URL
-                issue_url = f"https://github.com/facebook/react/issues/{simplified_issue['number']}"
-                
-                # Add to matches list with issue details
-                issue_matches.append({
-                    "issue_number": simplified_issue['number'],
-                    "title": simplified_issue['title'],
-                    "url": issue_url,
-                    "match_percentage": skill_match.get("match_percentage", 0),
-                    "match_score": match_score,
-                    "match_level": skill_match.get("match_level", "unknown"),
-                    "matching_skills": skill_match.get("matching_skills", []),
-                    "missing_skills": skill_match.get("missing_skills", []),
-                    "required_skills": {
-                        "languages": issue_requirements.get("required_languages", []),
-                        "frameworks": issue_requirements.get("required_frameworks", []),
-                        "domain_knowledge": issue_requirements.get("required_domain_knowledge", []),
-                        "experience_level": issue_requirements.get("experience_level", "unknown")
+        for repo_name, issues in all_issues.items():
+            for issue in issues:
+                try:
+                    # Create a simplified issue object for analysis
+                    simplified_issue = {
+                        'title': issue.get('title', ''),
+                        'body': issue.get('bodyText', ''),
+                        'labels': [label['name'] for label in issue.get('labels', {}).get('nodes', [])],
+                        'number': issue.get('number', 0),
+                        'url': issue.get('url', '')
                     }
-                })
-            except Exception as e:
-                print(f"Warning: Skipping issue due to error: {str(e)}")
-                continue
+                    
+                    # Analyze issue requirements
+                    issue_requirements = analyzer.analyze_issue(simplified_issue)
+                    
+                    if not issue_requirements:
+                        continue
+                    
+                    # Compare skills using enhanced tech profile
+                    skill_match = analyzer.compare_skills(tech_profile, issue_requirements)
+                    
+                    if not skill_match:
+                        continue
+                    
+                    # Calculate score out of 10
+                    match_score = calculate_score_out_of_10(skill_match.get("match_percentage", 0))
+                    
+                    # Add to matches list with issue details
+                    issue_matches.append({
+                        "issue_number": simplified_issue['number'],
+                        "title": simplified_issue['title'],
+                        "url": simplified_issue['url'],
+                        "match_percentage": skill_match.get("match_percentage", 0),
+                        "match_score": match_score,
+                        "match_level": skill_match.get("match_level", "unknown"),
+                        "matching_skills": skill_match.get("matching_skills", []),
+                        "missing_skills": skill_match.get("missing_skills", []),
+                        "required_skills": {
+                            "languages": issue_requirements.get("required_languages", []),
+                            "frameworks": issue_requirements.get("required_frameworks", []),
+                            "domain_knowledge": issue_requirements.get("required_domain_knowledge", []),
+                            "experience_level": issue_requirements.get("experience_level", "unknown")
+                        }
+                    })
+                except Exception as e:
+                    print(f"Warning: Skipping issue due to error: {str(e)}")
+                    continue
         
         if not issue_matches:
             print("No matching issues found.")
