@@ -2,6 +2,7 @@ import json
 from gemini_analyzer import create_analyzer
 from github_fetcher import GitHubFetcher
 import sys
+from typing import Dict, Any, Optional
 
 def format_skill_list(skills: list) -> str:
     """Format a list of skills with proper formatting"""
@@ -37,25 +38,20 @@ def display_user_profile(profile: dict):
         for gist in profile['gists'][:3]:  # Show last 3 gists
             print(f"- {gist.get('description', 'No description')} ({len(gist['files'])} files)")
 
-def main():
+def analyze_github_user(username: str) -> Optional[Dict[str, Any]]:
+    """Analyze a GitHub user's profile and return recommendations"""
     # Initialize the GitHub fetcher
     github = GitHubFetcher()
     
-    # Get GitHub username from user
-    username = input("Enter GitHub username: ")
-    
     # Fetch comprehensive user profile and repositories
-    print(f"\nFetching comprehensive data for user {username}...")
     user_data = github.get_user_profile(username)
     if not user_data:
-        print("Error: Could not fetch user profile")
-        return
+        return None
     
     # Fetch repositories with enhanced data
     repositories = github.get_user_repositories(username)
     if not repositories:
-        print("Error: Could not fetch user repositories")
-        return
+        return None
     
     # Get comprehensive tech profile
     tech_profile = github.get_user_tech_profile(username)
@@ -73,27 +69,16 @@ def main():
             "domains": tech_profile.get("domains", [])
         }
         
-        # Display user skills and languages
-        print("\nUser Profile Data:")
-        print(json.dumps({
-            "skills": {
-                "languages": user_skills_data["languages"],
-                "frameworks": user_skills_data["frameworks"],
-                "tools": user_skills_data["tools"],
-                "domains": user_skills_data["domains"]
-            }
-        }, indent=2))
-        
         # Load issues from github_issues.json
         try:
             with open("github_issues.json", "r", encoding="utf-8") as f:
                 all_issues = json.load(f)
         except FileNotFoundError:
             print("Error: github_issues.json not found. Please run fetch_issues.py first.")
-            return
+            return None
         except json.JSONDecodeError:
             print("Error: Invalid JSON format in github_issues.json")
-            return
+            return None
         
         # Analyze each issue and find matches using enhanced tech profile
         issue_matches = []
@@ -154,8 +139,7 @@ def main():
                     continue
         
         if not issue_matches:
-            print("No matching issues found.")
-            return
+            return None
         
         # Sort issues by multiple criteria to ensure consistent ordering
         issue_matches.sort(key=lambda x: (
@@ -168,7 +152,7 @@ def main():
         top_matches = issue_matches[:5]
         
         # Prepare the final data structure
-        output_data = {
+        return {
             "user_profile": {
                 "skills": {
                     "languages": user_skills_data["languages"],
@@ -180,14 +164,24 @@ def main():
             "recommended_issues": top_matches
         }
         
-        # Print the data in a format that can be easily consumed by the frontend
-        print("\nData for Frontend:")
-        print(json.dumps(output_data, indent=2))
-        
     except Exception as e:
         print(f"Error occurred: {str(e)}")
         import traceback
         traceback.print_exc()
+        return None
+
+def main():
+    # Get GitHub username from user
+    username = input("Enter GitHub username: ")
+    
+    # Analyze the user
+    result = analyze_github_user(username)
+    
+    if result:
+        print("\nData for Frontend:")
+        print(json.dumps(result, indent=2))
+    else:
+        print("Error: Could not analyze user profile")
 
 if __name__ == "__main__":
     main() 
