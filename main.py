@@ -51,9 +51,6 @@ def main():
         print("Error: Could not fetch user profile")
         return
     
-    # Display comprehensive user profile
-    display_user_profile(user_data)
-    
     # Fetch repositories with enhanced data
     repositories = github.get_user_repositories(username)
     if not repositories:
@@ -68,35 +65,26 @@ def main():
     analyzer = create_analyzer(api_key)
     
     try:
-        # Display comprehensive tech profile
-        print("\nTechnology Profile:")
-        print("Languages:", format_skill_list(tech_profile.get("languages", [])))
-        print("Frameworks:", format_skill_list(tech_profile.get("frameworks", [])))
-        print("Tools:", format_skill_list(tech_profile.get("tools", [])))
-        print("Domains:", format_skill_list(tech_profile.get("domains", [])))
+        # Prepare user skills data
+        user_skills_data = {
+            "languages": tech_profile.get("languages", []),
+            "frameworks": tech_profile.get("frameworks", []),
+            "tools": tech_profile.get("tools", []),
+            "domains": tech_profile.get("domains", [])
+        }
         
-        # Enhanced repository analysis
-        print("\nRepository Analysis:")
-        for repo in repositories:
-            print(f"\n{repo['name']}:")
-            print("Language Statistics:")
-            if repo.get('language_stats'):
-                total_bytes = sum(repo['language_stats'].values())
-                for lang, bytes_count in repo['language_stats'].items():
-                    percentage = (bytes_count / total_bytes * 100) if total_bytes > 0 else 0
-                    print(f"- {lang}: {percentage:.1f}%")
-            else:
-                print("- No language statistics available")
-            
-            print("\nDetected Technologies:")
-            if repo.get('detected_tech_stack'):
-                for tech, files in repo['detected_tech_stack'].items():
-                    print(f"- {tech}")
-            else:
-                print("- No technologies detected")
+        # Display user skills and languages
+        print("\nUser Profile Data:")
+        print(json.dumps({
+            "skills": {
+                "languages": user_skills_data["languages"],
+                "frameworks": user_skills_data["frameworks"],
+                "tools": user_skills_data["tools"],
+                "domains": user_skills_data["domains"]
+            }
+        }, indent=2))
         
         # Load issues from github_issues.json
-        print("\nLoading issues from github_issues.json...")
         try:
             with open("github_issues.json", "r", encoding="utf-8") as f:
                 all_issues = json.load(f)
@@ -108,7 +96,6 @@ def main():
             return
         
         # Analyze each issue and find matches using enhanced tech profile
-        print("\nAnalyzing issues and finding matches...")
         issue_matches = []
         
         for repo_name, issues in all_issues.items():
@@ -120,7 +107,8 @@ def main():
                         'body': issue.get('bodyText', ''),
                         'labels': [label['name'] for label in issue.get('labels', {}).get('nodes', [])],
                         'number': issue.get('number', 0),
-                        'url': issue.get('url', '')
+                        'url': issue.get('url', ''),
+                        'createdAt': issue.get('createdAt', '')
                     }
                     
                     # Analyze issue requirements
@@ -138,11 +126,17 @@ def main():
                     # Calculate score out of 10
                     match_score = calculate_score_out_of_10(skill_match.get("match_percentage", 0))
                     
+                    # Only include issues with a match score above threshold
+                    if match_score < 3.0:  # Minimum threshold of 3/10
+                        continue
+                    
                     # Add to matches list with issue details
                     issue_matches.append({
-                        "issue_number": simplified_issue['number'],
-                        "title": simplified_issue['title'],
-                        "url": simplified_issue['url'],
+                        "repo_name": repo_name,
+                        "issue_title": simplified_issue['title'],
+                        "issue_description": simplified_issue['body'],
+                        "labels": simplified_issue['labels'],
+                        "created_at": simplified_issue['createdAt'],
                         "match_percentage": skill_match.get("match_percentage", 0),
                         "match_score": match_score,
                         "match_level": skill_match.get("match_level", "unknown"),
@@ -156,32 +150,39 @@ def main():
                         }
                     })
                 except Exception as e:
-                    print(f"Warning: Skipping issue due to error: {str(e)}")
+                    # print(f"Warning: Skipping issue due to error: {str(e)}")
                     continue
         
         if not issue_matches:
             print("No matching issues found.")
             return
         
-        # Sort issues by match percentage and get top 5
-        issue_matches.sort(key=lambda x: x["match_percentage"], reverse=True)
+        # Sort issues by multiple criteria to ensure consistent ordering
+        issue_matches.sort(key=lambda x: (
+            -x["match_percentage"],
+            -len(x["matching_skills"]),
+            x["repo_name"]
+        ))
+        
+        # Get top 5 matches
         top_matches = issue_matches[:5]
         
-        # Display top 5 matching issues
-        print("\nTop 5 Matching Issues:")
-        for idx, match in enumerate(top_matches, 1):
-            print(f"\n{idx}. Issue #{match['issue_number']}: {match['title']}")
-            print(f"   URL: {match['url']}")
-            print(f"   Match Score: {match['match_score']}/10 ({match['match_percentage']}%)")
-            print(f"   Match Level: {match['match_level']}")
-            print("\n   Required Skills:")
-            print(f"   - Languages: {format_skill_list(match['required_skills']['languages'])}")
-            print(f"   - Frameworks: {format_skill_list(match['required_skills']['frameworks'])}")
-            print(f"   - Domain Knowledge: {format_skill_list(match['required_skills']['domain_knowledge'])}")
-            print(f"   - Experience Level: {match['required_skills']['experience_level']}")
-            print("\n   Your Skills:")
-            print(f"   - Matching: {format_skill_list(match['matching_skills'])}")
-            print(f"   - Missing: {format_skill_list(match['missing_skills'])}")
+        # Prepare the final data structure
+        output_data = {
+            "user_profile": {
+                "skills": {
+                    "languages": user_skills_data["languages"],
+                    "frameworks": user_skills_data["frameworks"],
+                    "tools": user_skills_data["tools"],
+                    "domains": user_skills_data["domains"]
+                }
+            },
+            "recommended_issues": top_matches
+        }
+        
+        # Print the data in a format that can be easily consumed by the frontend
+        print("\nData for Frontend:")
+        print(json.dumps(output_data, indent=2))
         
     except Exception as e:
         print(f"Error occurred: {str(e)}")

@@ -54,7 +54,7 @@ class GeminiAnalyzer:
             return {}
             
         except requests.exceptions.RequestException as e:
-            print(f"Error calling Gemini API: {e}")
+            # print(f"Error calling Gemini API: {e}")
             return {}
 
     def analyze_user_profile(self, user_data: Dict[str, Any], repositories: List[Dict[str, Any]]) -> Dict[str, Any]:
