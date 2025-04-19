@@ -5,18 +5,46 @@ import time
 import json
 import os
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
 
 class GitHubAPI:
     def __init__(self):
         self.base_url = "https://api.github.com"
         self.graphql_url = "https://api.github.com/graphql"
+        
+        # Get GitHub token from environment
+        github_token = os.getenv('GITHUB_TOKEN')
+        if not github_token:
+            logger.error("GITHUB_TOKEN environment variable is not set")
+            raise ValueError("GITHUB_TOKEN environment variable is not set")
+            
         self.headers = {
             'Accept': 'application/vnd.github.v3+json',
-            'Authorization': 'token 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'
+            'Authorization': f"token {github_token}"
         }
-        self.cache_dir = "github_cache"  # Directory to store cache files
+        
+        # Verify token is valid
+        try:
+            response = requests.get(f"{self.base_url}/rate_limit", headers=self.headers)
+            if response.status_code != 200:
+                logger.error(f"Invalid GitHub token. Status code: {response.status_code}")
+                raise ValueError("Invalid GitHub token")
+            logger.debug("GitHub token is valid")
+        except Exception as e:
+            logger.error(f"Error verifying GitHub token: {str(e)}")
+            raise
+            
+        self.cache_dir = "github_cache"
         self._ensure_cache_dir()
-        self.cache_duration = 3600  # Cache duration in seconds (1 hour)
+        self.cache_duration = 3600
         self.rate_limit = self._check_rate_limit()
 
     def _ensure_cache_dir(self):

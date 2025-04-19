@@ -2,41 +2,69 @@ from flask import Flask, request, jsonify
 from main import analyze_github_user
 import os
 from dotenv import load_dotenv
+import logging
+import traceback
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+# Verify GitHub token is set
+if not os.getenv('GITHUB_TOKEN'):
+    logger.error("GITHUB_TOKEN environment variable is not set")
+    raise ValueError("GITHUB_TOKEN environment variable is not set")
 
 app = Flask(__name__)
 
 @app.route('/analyze', methods=['GET'])
 def analyze_user():
-    # Get username from query parameter
-    username = request.args.get('username')
-    
-    if not username:
-        return jsonify({
-            "error": "Username parameter is required",
-            "status": "error"
-        }), 400
-    
     try:
-        # Call the analysis function
-        result = analyze_github_user(username)
+        # Get username from query parameter
+        username = request.args.get('username')
+        logger.debug(f"Received request for username: {username}")
         
-        if not result:
+        if not username:
+            logger.error("No username provided in request")
             return jsonify({
-                "error": "Could not analyze user profile",
+                "error": "Username parameter is required",
                 "status": "error"
-            }), 404
+            }), 400
         
-        return jsonify({
-            "data": result,
-            "status": "success"
-        })
-        
+        # Call the analysis function
+        logger.debug(f"Starting analysis for user: {username}")
+        try:
+            result = analyze_github_user(username)
+            logger.debug(f"Analysis result: {result}")
+            
+            if not result:
+                logger.error(f"Analysis returned None for user: {username}")
+                return jsonify({
+                    "error": "Could not analyze user profile. Please check if the username exists and is accessible.",
+                    "status": "error"
+                }), 404
+            
+            logger.debug(f"Successfully analyzed user: {username}")
+            return jsonify({
+                "data": result,
+                "status": "success"
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in analyze_github_user: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({
+                "error": f"Error analyzing profile: {str(e)}",
+                "status": "error"
+            }), 500
+            
     except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({
-            "error": str(e),
+            "error": f"An unexpected error occurred: {str(e)}",
             "status": "error"
         }), 500
 

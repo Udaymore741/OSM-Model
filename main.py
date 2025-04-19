@@ -3,6 +3,12 @@ from gemini_analyzer import create_analyzer
 from github_fetcher import GitHubFetcher
 import sys
 from typing import Dict, Any, Optional
+import logging
+import traceback
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 def format_skill_list(skills: list) -> str:
     """Format a list of skills with proper formatting"""
@@ -40,27 +46,42 @@ def display_user_profile(profile: dict):
 
 def analyze_github_user(username: str) -> Optional[Dict[str, Any]]:
     """Analyze a GitHub user's profile and return recommendations"""
-    # Initialize the GitHub fetcher
-    github = GitHubFetcher()
-    
-    # Fetch comprehensive user profile and repositories
-    user_data = github.get_user_profile(username)
-    if not user_data:
-        return None
-    
-    # Fetch repositories with enhanced data
-    repositories = github.get_user_repositories(username)
-    if not repositories:
-        return None
-    
-    # Get comprehensive tech profile
-    tech_profile = github.get_user_tech_profile(username)
-    
-    # Initialize the Gemini analyzer
-    api_key = "AIzaSyCxstWuvZ3GlNev2eRVvflbE9M5okpVLNA"
-    analyzer = create_analyzer(api_key)
+    logger.debug(f"Starting analysis for user: {username}")
     
     try:
+        # Initialize the GitHub fetcher
+        github = GitHubFetcher()
+        logger.debug("Initialized GitHub fetcher")
+        
+        # Fetch comprehensive user profile and repositories
+        logger.debug(f"Fetching user profile for: {username}")
+        user_data = github.get_user_profile(username)
+        if not user_data:
+            logger.error(f"Could not fetch user profile for: {username}")
+            return None
+        logger.debug(f"Successfully fetched user profile for: {username}")
+        
+        # Fetch repositories with enhanced data
+        logger.debug(f"Fetching repositories for: {username}")
+        repositories = github.get_user_repositories(username)
+        if not repositories:
+            logger.error(f"Could not fetch repositories for: {username}")
+            return None
+        logger.debug(f"Successfully fetched repositories for: {username}")
+        
+        # Get comprehensive tech profile
+        logger.debug(f"Fetching tech profile for: {username}")
+        tech_profile = github.get_user_tech_profile(username)
+        if not tech_profile:
+            logger.error(f"Could not fetch tech profile for: {username}")
+            return None
+        logger.debug(f"Successfully fetched tech profile for: {username}")
+        
+        # Initialize the Gemini analyzer
+        api_key = "AIzaSyCxstWuvZ3GlNev2eRVvflbE9M5okpVLNA"
+        analyzer = create_analyzer(api_key)
+        logger.debug("Initialized Gemini analyzer")
+        
         # Prepare user skills data
         user_skills_data = {
             "languages": tech_profile.get("languages", []),
@@ -68,22 +89,27 @@ def analyze_github_user(username: str) -> Optional[Dict[str, Any]]:
             "tools": tech_profile.get("tools", []),
             "domains": tech_profile.get("domains", [])
         }
+        logger.debug(f"Prepared user skills data: {user_skills_data}")
         
         # Load issues from github_issues.json
         try:
+            logger.debug("Loading issues from github_issues.json")
             with open("github_issues.json", "r", encoding="utf-8") as f:
                 all_issues = json.load(f)
+            logger.debug(f"Successfully loaded {len(all_issues)} repositories' issues")
         except FileNotFoundError:
-            print("Error: github_issues.json not found. Please run fetch_issues.py first.")
+            logger.error("github_issues.json not found")
             return None
         except json.JSONDecodeError:
-            print("Error: Invalid JSON format in github_issues.json")
+            logger.error("Invalid JSON format in github_issues.json")
             return None
         
         # Analyze each issue and find matches using enhanced tech profile
         issue_matches = []
+        logger.debug("Starting issue analysis")
         
         for repo_name, issues in all_issues.items():
+            logger.debug(f"Analyzing issues for repository: {repo_name}")
             for issue in issues:
                 try:
                     # Create a simplified issue object for analysis
@@ -98,13 +124,11 @@ def analyze_github_user(username: str) -> Optional[Dict[str, Any]]:
                     
                     # Analyze issue requirements
                     issue_requirements = analyzer.analyze_issue(simplified_issue)
-                    
                     if not issue_requirements:
                         continue
                     
                     # Compare skills using enhanced tech profile
                     skill_match = analyzer.compare_skills(tech_profile, issue_requirements)
-                    
                     if not skill_match:
                         continue
                     
@@ -135,10 +159,11 @@ def analyze_github_user(username: str) -> Optional[Dict[str, Any]]:
                         }
                     })
                 except Exception as e:
-                    # print(f"Warning: Skipping issue due to error: {str(e)}")
+                    logger.warning(f"Error processing issue: {str(e)}")
                     continue
         
         if not issue_matches:
+            logger.warning("No matching issues found")
             return None
         
         # Sort issues by multiple criteria to ensure consistent ordering
@@ -150,9 +175,10 @@ def analyze_github_user(username: str) -> Optional[Dict[str, Any]]:
         
         # Get top 5 matches
         top_matches = issue_matches[:5]
+        logger.debug(f"Found {len(top_matches)} matching issues")
         
         # Prepare the final data structure
-        return {
+        result = {
             "user_profile": {
                 "skills": {
                     "languages": user_skills_data["languages"],
@@ -164,10 +190,12 @@ def analyze_github_user(username: str) -> Optional[Dict[str, Any]]:
             "recommended_issues": top_matches
         }
         
+        logger.debug("Successfully completed analysis")
+        return result
+        
     except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error in analyze_github_user: {str(e)}")
+        logger.error(traceback.format_exc())
         return None
 
 def main():
