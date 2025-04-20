@@ -5,8 +5,11 @@ from dotenv import load_dotenv
 import logging
 import traceback
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
+# Configure logging with more detailed format
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -22,14 +25,17 @@ app = Flask(__name__)
 @app.route('/analyze', methods=['GET'])
 def analyze_user():
     try:
+        # Log all query parameters received
+        logger.debug(f"Received request with parameters: {request.args}")
+        
         # Get username from query parameter
-        username = request.args.get('login')
-        logger.debug(f"Received request for username: {username}")
+        username = request.args.get('username')
+        logger.debug(f"Extracted username: {username}")
         
         if not username:
             logger.error("No username provided in request")
             return jsonify({
-                "error": "Username parameter is required",
+                "error": "Username parameter is required. Please provide a username in the URL like: /analyze?username=YOUR_USERNAME",
                 "status": "error"
             }), 400
         
@@ -71,4 +77,5 @@ def analyze_user():
 if __name__ == '__main__':
     # Get port from environment variable or use default
     port = int(os.environ.get('PORT', 5000))
+    logger.info(f"Starting Flask application on port {port}")
     app.run(host='0.0.0.0', port=port, debug=True) 
