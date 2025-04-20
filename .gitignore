@@ -40,4 +40,6 @@ github_cache/
 
 # Misc
 .DS_Store
-Thumbs.db 
+Thumbs.db
+.env.local
+.env.*.local 

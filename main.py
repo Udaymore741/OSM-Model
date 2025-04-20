@@ -5,6 +5,7 @@ import sys
 from typing import Dict, Any, Optional
 import logging
 import traceback
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -116,7 +117,7 @@ def analyze_github_user(username: str) -> Optional[Dict[str, Any]]:
                     simplified_issue = {
                         'title': issue.get('title', ''),
                         'body': issue.get('bodyText', ''),
-                        'labels': [label['name'] for label in issue.get('labels', {}).get('nodes', [])],
+                        'labels': issue.get('labels', {}).get('nodes', []),
                         'number': issue.get('number', 0),
                         'url': issue.get('url', ''),
                         'createdAt': issue.get('createdAt', '')
@@ -125,6 +126,7 @@ def analyze_github_user(username: str) -> Optional[Dict[str, Any]]:
                     # Analyze issue requirements
                     issue_requirements = analyzer.analyze_issue(simplified_issue)
                     if not issue_requirements:
+                        logger.warning(f"Could not analyze issue {simplified_issue['number']} in {repo_name}")
                         continue
                     
                     # Compare skills using enhanced tech profile
@@ -144,7 +146,7 @@ def analyze_github_user(username: str) -> Optional[Dict[str, Any]]:
                         "repo_name": repo_name,
                         "issue_title": simplified_issue['title'],
                         "issue_description": simplified_issue['body'],
-                        "labels": simplified_issue['labels'],
+                        "labels": [label.get('name', '') for label in simplified_issue['labels']],
                         "created_at": simplified_issue['createdAt'],
                         "match_percentage": skill_match.get("match_percentage", 0),
                         "match_score": match_score,

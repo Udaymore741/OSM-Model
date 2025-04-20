@@ -1,61 +1,60 @@
 import os
 import json
 import requests
-from typing import List, Dict, Any, Tuple
+import time
+import logging
+from typing import List, Dict, Any, Tuple, Optional
+
+logger = logging.getLogger(__name__)
 
 class GeminiAnalyzer:
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        self.max_retries = 3
+        self.retry_delay = 2  # seconds
         
-    def _call_gemini_api(self, prompt: str) -> Dict[str, Any]:
-        """Make a call to the Gemini API"""
+    def _call_gemini_api(self, prompt: str) -> Optional[Dict[str, Any]]:
+        url = f"{self.base_url}?key={self.api_key}"
         headers = {
-            'Content-Type': 'application/json'
+            "Content-Type": "application/json",
         }
-        
         data = {
             "contents": [{
                 "parts": [{
-                    "text": prompt + "\nPlease respond with ONLY the JSON object, no markdown or other text."
+                    "text": prompt
                 }]
             }]
         }
-        
-        url = f"{self.api_url}?key={self.api_key}"
-        
-        try:
-            response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
-            response_data = response.json()
-            
-            if 'error' in response_data:
-                print(f"API Error: {response_data['error']}")
-                return {}
+
+        for attempt in range(self.max_retries):
+            try:
+                # Add exponential backoff
+                if attempt > 0:
+                    wait_time = min(2 ** attempt, 30)  # Cap at 30 seconds
+                    logger.warning(f"Waiting {wait_time} seconds before retry {attempt + 1}...")
+                    time.sleep(wait_time)
+                    
+                response = requests.post(url, headers=headers, json=data, timeout=30)
                 
-            # Extract the text content from the response
-            if 'candidates' in response_data:
-                for candidate in response_data['candidates']:
-                    if 'content' in candidate:
-                        for part in candidate['content'].get('parts', []):
-                            if 'text' in part:
-                                text = part['text'].strip()
-                                # Remove any markdown code block markers
-                                text = text.replace('```json', '').replace('```', '').strip()
-                                try:
-                                    # Try to parse the text as JSON
-                                    return json.loads(text)
-                                except json.JSONDecodeError as e:
-                                    print(f"Failed to parse response as JSON: {e}")
-                                    print(f"Raw text: {text}")
-                                    return {}
-            
-            print("No valid response content found")
-            return {}
-            
-        except requests.exceptions.RequestException as e:
-            # print(f"Error calling Gemini API: {e}")
-            return {}
+                if response.status_code == 429:  # Rate limit
+                    wait_time = int(response.headers.get('Retry-After', 30))
+                    logger.warning(f"Rate limited. Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                    continue
+                    
+                response.raise_for_status()
+                return response.json()
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"API call failed (attempt {attempt + 1}/{self.max_retries}): {str(e)}")
+                if attempt < self.max_retries - 1:
+                    continue
+                else:
+                    logger.error("Max retries reached. Giving up.")
+                    return None
+                    
+        return None
 
     def analyze_user_profile(self, user_data: Dict[str, Any], repositories: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Analyze a GitHub user's profile and repositories to extract their skills"""
@@ -101,12 +100,20 @@ Return a JSON object with these exact keys:
 
         return self._call_gemini_api(prompt)
 
-    def analyze_issue(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze_issue(self, issue: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Analyze a GitHub issue to extract required skills"""
-        prompt = f"""Analyze this GitHub issue and identify required skills:
+        try:
+            # Safely handle labels
+            labels = issue.get('labels', [])
+            if isinstance(labels, list):
+                label_names = [label.get('name', '') if isinstance(label, dict) else str(label) for label in labels]
+            else:
+                label_names = [str(labels)]
+            
+            prompt = f"""Analyze this GitHub issue and identify required skills:
 
-Issue Title: {issue.get('title')}
-Labels: {', '.join(label['name'] for label in issue.get('labels', []))}
+Issue Title: {issue.get('title', '')}
+Labels: {', '.join(label_names)}
 Description: {issue.get('body', 'No description provided')}
 
 Based on this information, create a JSON object detailing:
@@ -126,9 +133,43 @@ Return a JSON object with these exact keys:
   "complexity": "low/medium/high"
 }}"""
 
-        return self._call_gemini_api(prompt)
+            # Add delay between API calls to avoid rate limiting
+            time.sleep(1)  # 1 second delay between calls
+            
+            response = self._call_gemini_api(prompt)
+            
+            if not response:
+                logger.error("Failed to get response from Gemini API")
+                return None
+                
+            return self._parse_response(response)
+            
+        except Exception as e:
+            logger.error(f"Error analyzing issue: {str(e)}")
+            return None
 
-    def compare_skills(self, user_skills: Dict[str, Any], issue_skills: Dict[str, Any]) -> Dict[str, Any]:
+    def _parse_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        # Extract the text content from the response
+        if 'candidates' in response:
+            for candidate in response['candidates']:
+                if 'content' in candidate:
+                    for part in candidate['content'].get('parts', []):
+                        if 'text' in part:
+                            text = part['text'].strip()
+                            # Remove any markdown code block markers
+                            text = text.replace('```json', '').replace('```', '').strip()
+                            try:
+                                # Try to parse the text as JSON
+                                return json.loads(text)
+                            except json.JSONDecodeError as e:
+                                print(f"Failed to parse response as JSON: {e}")
+                                print(f"Raw text: {text}")
+                                return {}
+        
+        print("No valid response content found")
+        return {}
+
+    def compare_skills(self, user_skills: Dict[str, Any], required_skills: Dict[str, Any]) -> Dict[str, Any]:
         """Compare user skills with issue requirements"""
         prompt = f"""Compare these user skills and issue requirements:
 
@@ -136,7 +177,7 @@ User Skills:
 {json.dumps(user_skills, indent=2)}
 
 Issue Requirements:
-{json.dumps(issue_skills, indent=2)}
+{json.dumps(required_skills, indent=2)}
 
 Analyze the match and return a JSON object with these exact keys:
 {{
@@ -147,16 +188,50 @@ Analyze the match and return a JSON object with these exact keys:
   "experience_match": "Meets Requirements/Below Requirements/Exceeds Requirements"
 }}"""
 
-        result = self._call_gemini_api(prompt)
-        if not result:
+        try:
+            response = self._call_gemini_api(prompt)
+            
+            if not response:
+                logger.error("Failed to get response from Gemini API for skill comparison")
+                return {
+                    "match_percentage": 0,
+                    "match_level": "unknown",
+                    "matching_skills": [],
+                    "missing_skills": [],
+                    "experience_match": "Unknown"
+                }
+                
+            return self._parse_comparison_response(response)
+            
+        except Exception as e:
+            logger.error(f"Error comparing skills: {str(e)}")
             return {
+                "match_percentage": 0,
+                "match_level": "unknown",
                 "matching_skills": [],
                 "missing_skills": [],
-                "match_percentage": 0,
-                "match_level": "Weak Match",
                 "experience_match": "Unknown"
             }
-        return result
+
+    def _parse_comparison_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        if 'candidates' in response:
+            for candidate in response['candidates']:
+                if 'content' in candidate:
+                    for part in candidate['content'].get('parts', []):
+                        if 'text' in part:
+                            text = part['text'].strip()
+                            # Remove any markdown code block markers
+                            text = text.replace('```json', '').replace('```', '').strip()
+                            try:
+                                # Try to parse the text as JSON
+                                return json.loads(text)
+                            except json.JSONDecodeError as e:
+                                print(f"Failed to parse response as JSON: {e}")
+                                print(f"Raw text: {text}")
+                                return {}
+        
+        print("No valid response content found")
+        return {}
 
     def _format_repos_for_prompt(self, repositories: List[Dict[str, Any]]) -> str:
         """Format repository information for the prompt"""
