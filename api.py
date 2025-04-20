@@ -23,7 +23,7 @@ app = Flask(__name__)
 def analyze_user():
     try:
         # Get username from query parameter
-        username = request.args.get('username')
+        username = request.args.get('login')
         logger.debug(f"Received request for username: {username}")
         
         if not username:
